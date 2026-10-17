@@ -6,21 +6,23 @@
 const API=(()=>{const K='jaw-v1',RATE=1000,MIN=5000,U='$WON!!🤩🤩🥳🥳',
 BONUS_PCT=0.10,BONUS_CAP=50,CONFIRM_MS=30000;
 const OFFERS=[
-{id:'o8',kind:'Game goal',icon:'🎮',partner:'Torox',title:'Reach level 15 in Merge Garden',mins:60,payout:7.50,share:0.55},
-{id:'o9',kind:'Survey',icon:'📝',partner:'Torox',title:'Lifestyle survey',mins:12,payout:1.80,share:0.6},
-{id:'o1',kind:'Survey',icon:'📝',partner:'CPX Research',title:'Shopping habits survey',mins:8,payout:1.40,share:0.6},
-{id:'o6',kind:'Survey',icon:'📝',partner:'BitLabs',title:'Tech products survey',mins:15,payout:2.20,share:0.6},
-{id:'o2',kind:'App install',icon:'📲',partner:'AdGate Media',title:'Install FitTrack & open it',mins:3,payout:0.60,share:0.5},
-{id:'o3',kind:'Game goal',icon:'🎮',partner:'Ayet Studios',title:'Reach level 10 in Tile Quest',mins:45,payout:6.00,share:0.55},
-{id:'o7',kind:'Game goal',icon:'🎮',partner:'AdGate Media',title:'Build a Level 5 castle in Kingdoms',mins:150,payout:14.00,share:0.55},
-{id:'o4',kind:'Cashback',icon:'🛍️',partner:'BitLabs Shopping',title:'ShoeHub purchase (8% back on $50)',mins:10,payout:4.00,share:0.6},
-{id:'o5',kind:'Video ad',icon:'🎬',partner:'AdMob rewarded',title:'Watch a 30s video ad',mins:0.5,payout:0.02,share:0.5}];
+{id:'o8',kind:'Game goal',icon:'🎮',partner:'Torox',title:'Reach level 15 in Merge Garden',mins:60,payout:7.50},
+{id:'o9',kind:'Survey',icon:'📝',partner:'Torox',title:'Lifestyle survey',mins:12,payout:1.80},
+{id:'o1',kind:'Survey',icon:'📝',partner:'CPX Research',title:'Shopping habits survey',mins:8,payout:1.40},
+{id:'o6',kind:'Survey',icon:'📝',partner:'BitLabs',title:'Tech products survey',mins:15,payout:2.20},
+{id:'o2',kind:'App install',icon:'📲',partner:'AdGate Media',title:'Install FitTrack & open it',mins:3,payout:0.60},
+{id:'o3',kind:'Game goal',icon:'🎮',partner:'Ayet Studios',title:'Reach level 10 in Tile Quest',mins:45,payout:6.00},
+{id:'o7',kind:'Game goal',icon:'🎮',partner:'AdGate Media',title:'Build a Level 5 castle in Kingdoms',mins:150,payout:14.00},
+{id:'o4',kind:'Cashback',icon:'🛍️',partner:'BitLabs Shopping',title:'ShoeHub purchase (8% back on $50)',mins:10,payout:4.00},
+{id:'o5',kind:'Video ad',icon:'🎬',partner:'AdMob rewarded',title:'Watch a 30s video ad',mins:0.5,payout:0.02}];
 const STREAK=[[7,0.10],[5,0.05],[3,0.02]];
 const TASKS=[{id:'checkin',name:'Daily check-in',pts:10,daily:true,desc:'Open the app once a day'},
 {id:'poll',name:'Quick poll',pts:5,daily:true,desc:'One tap question'},
 {id:'tutorial',name:'Watch tutorial',pts:20,daily:false,desc:'2-minute video, one time only'},
 {id:'invite',name:'Invite a friend',pts:100,daily:false,desc:'Paid when your friend\'s first offer is confirmed (single level)'}];
 const today=()=>new Date().toISOString().slice(0,10),userPts=o=>Math.round(o.payout*o.share*RATE),perHour=o=>userPts(o)/RATE/(o.mins/60);
+// Revenue share: 5% of partner payout by default, 10% on Top picks or for members at level 5+.
+const SHARE_BASE=0.05,SHARE_TOP=0.10,SHARE_LEVEL=5;
 const fresh=()=>({user:{name:'Alex',code:'ZYN'+Math.floor(Math.random()*900+100)},done:{},tx:[],referrals:[],
  owner:{revenue:0,partnerRevenue:0,shopRevenue:0,paidOut:0,bonusSpent:0,streakSpent:0,boosterSpent:0},offerDays:[],xp:0,xpSpent:0,boosters:[],milestones:{},games:{},owned:['th-default','av-joker','cb-classic'],equip:{theme:'th-default',avatar:'av-joker',cardback:'cb-classic'}});
 let s=JSON.parse(localStorage.getItem(K)||'null')||fresh();const save=()=>localStorage.setItem(K,JSON.stringify(s));
@@ -45,12 +47,9 @@ function confirm(t){if(t.status!=='pending'||t.source!=='offer')return;t.status=
 function tick(){const now=Date.now();s.tx.forEach(t=>{if(t.source==='offer'&&t.status==='pending'&&now>=t.confirmAt)confirm(t);});checkMilestones();settleBonuses();save();}
 // ---- XP, levels, boosters, milestones, games, shop ----
 const LEVELS=[0,50,150,300,600,1000,1600,2500,4000];
-const isWeekend=(d=new Date())=>[0,6].includes(d.getUTCDay());
-const weekendEnd=()=>{const d=new Date();d.setUTCHours(24,0,0,0);while(d.getUTCDay()!==1)d.setUTCDate(d.getUTCDate()+1);return d.getTime();};
-function addXp(n){s.xp=(s.xp||0)+n*(isWeekend()?2:1);}
+function addXp(n){s.xp=(s.xp||0)+n;}
 const level=()=>{let l=1;LEVELS.forEach((x,i)=>{if((s.xp||0)>=x)l=i+1});return{level:l,xp:s.xp||0,next:LEVELS[l]||null,prev:LEVELS[l-1]};};
-function activeBoosters(){const now=Date.now(),L=(s.boosters||[]).filter(b=>b.endsAt>now);
- if(isWeekend())L.push({id:'wk',name:'2X XP Weekend',xp2:true,endsAt:weekendEnd(),badge:'2X WEEKEND',desc:'Double XP on everything this weekend (XP only — never $WON).'});return L;}
+function activeBoosters(){const now=Date.now(),L=(s.boosters||[]).filter(b=>b.endsAt>now);return L;}
 function giveBooster(name,pct,hours){s.boosters=s.boosters||[];s.boosters.push({id:Math.random().toString(36).slice(2),name,pct,endsAt:Date.now()+hours*36e5,badge:'LIMITED TIME',desc:`+${pct*100}% on confirmed offer $WON, paid from our share of each offer (capped at what the partner pays us).`});}
 const confirmedOffers=()=>s.tx.filter(t=>t.source==='offer'&&t.status==='available');
 const MILESTONES=[
@@ -105,14 +104,15 @@ const balances=()=>{tick();const spent=-s.tx.filter(t=>t.type==='redeem').reduce
  return{pending:sum('pending'),available:sum('available')-spent};};
 const avail=t=>t.id==='invite'||(t.daily?s.done[t.id]!==today():!s.done[t.id]);
 return{RATE,MIN,U,userPts,state:()=>s,balances,
-streak,streakPct,STREAK,level,activeBoosters,MILESTONES,GAMES,GAME_PLAYS,GAME_DAILY_CAP,playGame,gameDay,SHOP,sale,priceOf,buy,equip,isWeekend,weekendEnd,
+streak,streakPct,STREAK,level,activeBoosters,MILESTONES,GAMES,GAME_PLAYS,GAME_DAILY_CAP,playGame,gameDay,SHOP,sale,priceOf,buy,equip,SHARE_BASE,SHARE_TOP,SHARE_LEVEL,
 xpLeft:()=>(s.xp||0)-(s.xpSpent||0),
-offers(){const L=OFFERS.map(o=>({...o,userPts:userPts(o),userUsd:userPts(o)/RATE,perHour:perHour(o)})).sort((x,y)=>(x.kind==='Cashback')-(y.kind==='Cashback')||y.perHour-x.perHour);
- L.forEach((o,i)=>o.top=i<2&&o.kind!=='Cashback'); /* purchase-required offers never top picks */return L;},
+offers(){const top=new Set(OFFERS.filter(o=>o.kind!=='Cashback').sort((x,y)=>y.payout/y.mins-x.payout/x.mins).slice(0,2).map(o=>o.id)),lv=level().level>=SHARE_LEVEL;
+ const L=OFFERS.map(o=>{const share=(top.has(o.id)||lv)?SHARE_TOP:SHARE_BASE,x={...o,share,top:top.has(o.id)};return{...x,userPts:userPts(x),userUsd:userPts(x)/RATE,perHour:perHour(x)};})
+ .sort((x,y)=>(x.kind==='Cashback')-(y.kind==='Cashback')||y.perHour-x.perHour); /* purchase-required offers never top picks */return L;},
 tasks:()=>TASKS.map(t=>({...t,available:avail(t)})),
 owner(){tick();const b=balances(),cash=s.owner.revenue-s.owner.paidOut;
  return{...s.owner,cash,liability:(b.available+b.pending)/RATE,totalUserCredit:s.tx.filter(t=>t.pts>0&&t.status!=='pending').reduce((x,t)=>x+t.pts,0)/RATE,availableLiability:b.available/RATE,bonusBudget:bonusBudget(),bonusLeft:bonusLeft()};},
-startOffer(id,{delay=CONFIRM_MS}={}){const o=OFFERS.find(x=>x.id===id);
+startOffer(id,{delay=CONFIRM_MS}={}){const o=this.offers().find(x=>x.id===id);
  tx({type:'earn',source:'offer',status:'pending',pts:userPts(o),partnerUsd:o.payout,label:`${o.icon} ${o.title}`,partner:o.partner,doneAt:Date.now(),confirmAt:Date.now()+delay});},
 confirmNow(id){const t=s.tx.find(x=>x.id===id);if(t)confirm(t);save();}, // demo: simulate partner postback
 complete(id){const t=TASKS.find(x=>x.id===id);if(!t||!avail(t))throw Error('Already done today');if(id==='invite')throw Error('Use the Referral tab');
