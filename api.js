@@ -23,6 +23,8 @@ const TASKS=[{id:'checkin',name:'Daily check-in',pts:10,daily:true,desc:'Open th
 const today=()=>new Date().toISOString().slice(0,10),userPts=o=>Math.round(o.payout*o.share*RATE),perHour=o=>userPts(o)/RATE/(o.mins/60);
 // Revenue share: 30% of partner payout by default, 35% on Top picks or for members at level 5+.
 const SHARE_BASE=0.30,SHARE_TOP=0.35,SHARE_LEVEL=5;
+// Hard cap: TOTAL user credit per offer (base + streak + boosters + any extras) never exceeds 50% of partner payout.
+const MAX_USER_TOTAL=0.50;
 const fresh=()=>({user:{name:'Alex',code:'ZYN'+Math.floor(Math.random()*900+100)},done:{},tx:[],referrals:[],
  owner:{revenue:0,partnerRevenue:0,shopRevenue:0,paidOut:0,bonusSpent:0,streakSpent:0,boosterSpent:0},offerDays:[],xp:0,xpSpent:0,boosters:[],milestones:{},games:{},owned:['th-default','av-joker','cb-classic'],equip:{theme:'th-default',avatar:'av-joker',cardback:'cb-classic'}});
 let s=JSON.parse(localStorage.getItem(K)||'null')||fresh();const save=()=>localStorage.setItem(K,JSON.stringify(s));
@@ -39,7 +41,7 @@ function confirm(t){if(t.status!=='pending'||t.source!=='offer')return;t.status=
  s.offerDays=s.offerDays||[];const d=dayStr(t.doneAt||Date.now());if(!s.offerDays.includes(d))s.offerDays.push(d);
  // Streak bonus comes out of the OWNER's share of this offer, so total paid never exceeds partner revenue.
  s.owner.partnerRevenue=(s.owner.partnerRevenue||0)+t.partnerUsd;addXp(Math.round(t.pts/10));
- const pct=streakPct();let room=Math.floor((t.partnerUsd-t.pts/RATE)*RATE+1e-6);const bonus=Math.min(Math.round(t.pts*pct),room);room-=Math.max(bonus,0);
+ const pct=streakPct();let room=Math.max(0,Math.floor(t.partnerUsd*MAX_USER_TOTAL*RATE+1e-6)-t.pts);const bonus=Math.min(Math.round(t.pts*pct),room);room-=Math.max(bonus,0);
  const bp=activeBoosters().filter(b=>b.pct).reduce((x,b)=>x+b.pct,0),boost=Math.min(Math.round(t.pts*bp),room);
  if(boost>0){s.owner.boosterSpent=(s.owner.boosterSpent||0)+boost/RATE;s.tx.unshift({id:Math.random().toString(36).slice(2),at:new Date().toISOString(),type:'earn',source:'booster',status:'available',pts:boost,label:`🚀 Booster +${Math.round(bp*100)}% (from our share)`});}
  if(bonus>0){s.owner.streakSpent=(s.owner.streakSpent||0)+bonus/RATE;s.tx.unshift({id:Math.random().toString(36).slice(2),at:new Date().toISOString(),type:'earn',source:'streak',status:'available',pts:bonus,label:`🔥 ${streak()}-day streak +${pct*100}%`});}
@@ -50,7 +52,7 @@ const LEVELS=[0,50,150,300,600,1000,1600,2500,4000];
 function addXp(n){s.xp=(s.xp||0)+n;}
 const level=()=>{let l=1;LEVELS.forEach((x,i)=>{if((s.xp||0)>=x)l=i+1});return{level:l,xp:s.xp||0,next:LEVELS[l]||null,prev:LEVELS[l-1]};};
 function activeBoosters(){const now=Date.now(),L=(s.boosters||[]).filter(b=>b.endsAt>now);return L;}
-function giveBooster(name,pct,hours){s.boosters=s.boosters||[];s.boosters.push({id:Math.random().toString(36).slice(2),name,pct,endsAt:Date.now()+hours*36e5,badge:'LIMITED TIME',desc:`+${pct*100}% on confirmed offer $WON, paid from our share of each offer (capped at what the partner pays us).`});}
+function giveBooster(name,pct,hours){s.boosters=s.boosters||[];s.boosters.push({id:Math.random().toString(36).slice(2),name,pct,endsAt:Date.now()+hours*36e5,badge:'LIMITED TIME',desc:`+${pct*100}% on confirmed offer $WON, paid from our share of each offer. Total credit per offer (base + all boosts) is capped at 50% of the partner payout.`});}
 const confirmedOffers=()=>s.tx.filter(t=>t.source==='offer'&&t.status==='available');
 const MILESTONES=[
  {id:'m1',name:'First offer confirmed',icon:'🃏',test:()=>confirmedOffers().length>=1,reward:'50 XP + "Rookie Joker" badge',give:()=>{addXp(50);own('bd-rookie')}},
@@ -104,7 +106,7 @@ const balances=()=>{tick();const spent=-s.tx.filter(t=>t.type==='redeem').reduce
  return{pending:sum('pending'),available:sum('available')-spent};};
 const avail=t=>t.id==='invite'||(t.daily?s.done[t.id]!==today():!s.done[t.id]);
 return{RATE,MIN,U,userPts,state:()=>s,balances,
-streak,streakPct,STREAK,level,activeBoosters,MILESTONES,GAMES,GAME_PLAYS,GAME_DAILY_CAP,playGame,gameDay,SHOP,sale,priceOf,buy,equip,SHARE_BASE,SHARE_TOP,SHARE_LEVEL,
+streak,streakPct,STREAK,level,activeBoosters,MILESTONES,GAMES,GAME_PLAYS,GAME_DAILY_CAP,playGame,gameDay,SHOP,sale,priceOf,buy,equip,SHARE_BASE,SHARE_TOP,SHARE_LEVEL,MAX_USER_TOTAL,
 xpLeft:()=>(s.xp||0)-(s.xpSpent||0),
 offers(){const top=new Set(OFFERS.filter(o=>o.kind!=='Cashback').sort((x,y)=>y.payout/y.mins-x.payout/x.mins).slice(0,2).map(o=>o.id)),lv=level().level>=SHARE_LEVEL;
  const L=OFFERS.map(o=>{const share=(top.has(o.id)||lv)?SHARE_TOP:SHARE_BASE,x={...o,share,top:top.has(o.id)};return{...x,userPts:userPts(x),userUsd:userPts(x)/RATE,perHour:perHour(x)};})
