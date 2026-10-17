@@ -21,8 +21,8 @@ const TASKS=[{id:'checkin',name:'Daily check-in',pts:10,daily:true,desc:'Open th
 {id:'tutorial',name:'Watch tutorial',pts:20,daily:false,desc:'2-minute video, one time only'},
 {id:'invite',name:'Invite a friend',pts:100,daily:false,desc:'Paid when your friend\'s first offer is confirmed (single level)'}];
 const today=()=>new Date().toISOString().slice(0,10),userPts=o=>Math.round(o.payout*o.share*RATE),perHour=o=>userPts(o)/RATE/(o.mins/60);
-// Revenue share: 5% of partner payout by default, 10% on Top picks or for members at level 5+.
-const SHARE_BASE=0.05,SHARE_TOP=0.10,SHARE_LEVEL=5;
+// Revenue share: 30% of partner payout by default, 35% on Top picks or for members at level 5+.
+const SHARE_BASE=0.30,SHARE_TOP=0.35,SHARE_LEVEL=5;
 const fresh=()=>({user:{name:'Alex',code:'ZYN'+Math.floor(Math.random()*900+100)},done:{},tx:[],referrals:[],
  owner:{revenue:0,partnerRevenue:0,shopRevenue:0,paidOut:0,bonusSpent:0,streakSpent:0,boosterSpent:0},offerDays:[],xp:0,xpSpent:0,boosters:[],milestones:{},games:{},owned:['th-default','av-joker','cb-classic'],equip:{theme:'th-default',avatar:'av-joker',cardback:'cb-classic'}});
 let s=JSON.parse(localStorage.getItem(K)||'null')||fresh();const save=()=>localStorage.setItem(K,JSON.stringify(s));
