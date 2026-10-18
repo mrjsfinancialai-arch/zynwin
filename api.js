@@ -1,13 +1,12 @@
+// DEMO-ONLY mock backend (used for ?demo on localhost). Live data comes from Supabase via live.js.
 // Mock backend for Joker's Abstract Wins (formerly Zynwin). All money rules live here; persisted to localStorage.
 // Core rule: the owner never promises cash they don't have.
 //  - Offer earnings are PENDING until the partner confirms & pays, then AVAILABLE.
 //  - Free tasks/referrals are paid from a capped BONUS BUDGET (a % of revenue actually received).
 //  - Redemptions can't exceed cash on hand (partner revenue received - payouts already made).
-const API=(()=>{const K='jaw-v1',RATE=1000,MIN=5000,U='$WON!!🤩🤩🥳🥳',
+const API=(()=>{const K='jaw-v1',RATE=100,MIN=500,U='$WON!!🤩🤩🥳🥳',
 BONUS_PCT=0.10,BONUS_CAP=50,CONFIRM_MS=30000;
 const OFFERS=[
-{id:'o8',kind:'Game goal',icon:'🎮',partner:'Torox',title:'Reach level 15 in Merge Garden',mins:60,payout:7.50},
-{id:'o9',kind:'Survey',icon:'📝',partner:'Torox',title:'Lifestyle survey',mins:12,payout:1.80},
 {id:'o1',kind:'Survey',icon:'📝',partner:'CPX Research',title:'Shopping habits survey',mins:8,payout:1.40},
 {id:'o6',kind:'Survey',icon:'📝',partner:'BitLabs',title:'Tech products survey',mins:15,payout:2.20},
 {id:'o2',kind:'App install',icon:'📲',partner:'AdGate Media',title:'Install FitTrack & open it',mins:3,payout:0.60},
@@ -16,10 +15,10 @@ const OFFERS=[
 {id:'o4',kind:'Cashback',icon:'🛍️',partner:'BitLabs Shopping',title:'ShoeHub purchase (8% back on $50)',mins:10,payout:4.00},
 {id:'o5',kind:'Video ad',icon:'🎬',partner:'AdMob rewarded',title:'Watch a 30s video ad',mins:0.5,payout:0.02}];
 const STREAK=[[7,0.10],[5,0.05],[3,0.02]];
-const TASKS=[{id:'checkin',name:'Daily check-in',pts:10,daily:true,desc:'Open the app once a day'},
-{id:'poll',name:'Quick poll',pts:5,daily:true,desc:'One tap question'},
-{id:'tutorial',name:'Watch tutorial',pts:20,daily:false,desc:'2-minute video, one time only'},
-{id:'invite',name:'Invite a friend',pts:100,daily:false,desc:'Paid when your friend\'s first offer is confirmed (single level)'}];
+const TASKS=[{id:'checkin',name:'Daily check-in',pts:1,daily:true,desc:'Open the app once a day'},
+{id:'poll',name:'Quick poll',pts:1,daily:true,desc:'One tap question'},
+{id:'tutorial',name:'Watch tutorial',pts:2,daily:false,desc:'2-minute video, one time only'},
+{id:'invite',name:'Invite a friend',pts:10,daily:false,desc:'Paid when your friend\'s first offer is confirmed (single level)'}];
 const today=()=>new Date().toISOString().slice(0,10),userPts=o=>Math.round(o.payout*o.share*RATE),perHour=o=>userPts(o)/RATE/(o.mins/60);
 // Revenue share: 30% of partner payout by default, 35% on Top picks or for members at level 5+.
 const SHARE_BASE=0.30,SHARE_TOP=0.35,SHARE_LEVEL=5;
@@ -57,17 +56,17 @@ const confirmedOffers=()=>s.tx.filter(t=>t.source==='offer'&&t.status==='availab
 const MILESTONES=[
  {id:'m1',name:'First offer confirmed',icon:'🃏',test:()=>confirmedOffers().length>=1,reward:'50 XP + "Rookie Joker" badge',give:()=>{addXp(50);own('bd-rookie')}},
  {id:'m2',name:'3 offers confirmed',icon:'🎴',test:()=>confirmedOffers().length>=3,reward:'+10% booster for 24h',give:()=>giveBooster('+10% for 24h',0.10,24)},
- {id:'m3',name:'$1 earned from offers',icon:'💵',test:()=>confirmedOffers().reduce((x,t)=>x+t.pts,0)>=1000,reward:'20 $WON (bonus budget) + Neon Jester avatar',give:()=>{own('av-neon');bonusTx(20,'🏅 Milestone: $1 earned')}},
- {id:'m4',name:'3-day offer streak',icon:'🔥',test:()=>streak()>=3,reward:'25 $WON (bonus budget) + Prism card back',give:()=>{own('cb-prism');bonusTx(25,'🏅 Milestone: 3-day streak')}},
+ {id:'m3',name:'$1 earned from offers',icon:'💵',test:()=>confirmedOffers().reduce((x,t)=>x+t.pts,0)>=100,reward:'2 $WON (bonus budget) + Neon Jester avatar',give:()=>{own('av-neon');bonusTx(2,'🏅 Milestone: $1 earned')}},
+ {id:'m4',name:'3-day offer streak',icon:'🔥',test:()=>streak()>=3,reward:'3 $WON (bonus budget) + Prism card back',give:()=>{own('cb-prism');bonusTx(3,'🏅 Milestone: 3-day streak')}},
  {id:'m5',name:'Reach level 5',icon:'👑',test:()=>level().level>=5,reward:'+5% booster for 48h + Crown badge',give:()=>{giveBooster('+5% for 48h',0.05,48);own('bd-crown')}}];
 function checkMilestones(){s.milestones=s.milestones||{};MILESTONES.forEach(m=>{if(!s.milestones[m.id]&&m.test()){s.milestones[m.id]=new Date().toISOString();m.give();}});}
 function own(id){s.owned=s.owned||[];if(!s.owned.includes(id))s.owned.push(id);}
 function bonusTx(pts,label){s.tx.unshift({id:Math.random().toString(36).slice(2),at:new Date().toISOString(),type:'earn',source:'bonus',status:'pending',pts,label});}
 // Mini-games: free to play, never paid. Prizes are small, capped per day, and only paid when the bonus budget can cover them.
-const GAMES={scratch:{name:'Scratch Card',icon:'🎟️',table:[[1,0.50],[2,0.30],[5,0.15],[10,0.05]]},
- spin:{name:'Spin Wheel',icon:'🎡',table:[[1,0.25],[2,0.25],[3,0.125],[5,0.25],[10,0.125]]},
- flip:{name:'Card Flip Match',icon:'🃏',table:[[3,1]]}};
-const GAME_PLAYS=5,GAME_DAILY_CAP=30;
+const GAMES={scratch:{name:'Scratch Card',icon:'🎟️',table:[[0,0.80],[1,0.15],[2,0.04],[5,0.01]]},
+ spin:{name:'Spin Wheel',icon:'🎡',table:[[0,0.70],[1,0.20],[2,0.08],[5,0.02]]},
+ flip:{name:'Card Flip Match',icon:'🃏',table:[[0,0.70],[1,0.30]]}};
+const GAME_PLAYS=5,GAME_DAILY_CAP=3;
 function gameDay(){s.games=s.games||{};const d=today();if(s.games.day!==d)s.games={day:d,plays:{},won:0};return s.games;}
 function playGame(id){const g=GAMES[id],gd=gameDay();let r=Math.random(),prize=g.table[g.table.length-1][0];
  for(const[p,odds]of g.table){if(r<odds){prize=p;break;}r-=odds;}
@@ -120,14 +119,14 @@ confirmNow(id){const t=s.tx.find(x=>x.id===id);if(t)confirm(t);save();}, // demo
 complete(id){const t=TASKS.find(x=>x.id===id);if(!t||!avail(t))throw Error('Already done today');if(id==='invite')throw Error('Use the Referral tab');
  s.done[id]=t.daily?today():true;addXp(5);tx({type:'earn',source:'bonus',status:'pending',pts:t.pts,label:t.name});settleBonuses();save();},
 referFriend(name){if(!name)throw Error('Enter a name');s.referrals.push({name,at:today(),pending:true});
- tx({type:'earn',source:'bonus',status:'pending',pts:100,label:'Referral bonus: '+name});settleBonuses();save();},
+ tx({type:'earn',source:'bonus',status:'pending',pts:10,label:'Referral bonus: '+name});settleBonuses();save();},
 redeem(pts,brand){pts=+pts;const b=balances(),usd=pts/RATE;
  if(pts<MIN)throw Error(`Minimum is ${MIN.toLocaleString()} ${U}`);
  if(pts>b.available)throw Error(`Only Available ${U} can be redeemed. Pending ones unlock when partners confirm.`);
  if(usd>s.owner.revenue-s.owner.paidOut+1e-9)throw Error('Payout processing — funds are arriving from partners. Your balance is safe; please try again soon.');
  s.owner.paidOut+=usd;tx({type:'redeem',status:'paid',pts:-pts,label:`$${usd.toFixed(2)} ${brand} gift card (no fee)`});},
 seed(){if(s.tx.length)return;const p=(id,ago)=>{this.startOffer(id,{delay:0});s.tx[0].at=new Date(Date.now()-ago).toISOString();s.tx[0].doneAt=Date.now()-ago;tick();};
- ['o3','o1','o8','o2','o9'].forEach((id,i)=>p(id,86400000*(4-i)));
+ ['o3','o1','o6','o2','o7'].forEach((id,i)=>p(id,86400000*(4-i)));
  this.complete('checkin');this.complete('tutorial');this.referFriend('Sam');
  this.startOffer('o1',{delay:3600000});this.startOffer('o5',{delay:3600000});this.playGame('scratch');this.playGame('spin');tick();},
 reset(){localStorage.removeItem(K);s=fresh();save();}};})();
