@@ -27,7 +27,7 @@ const LIVE=(()=>{
   if(a.error||b.error){st.adminErr=(a.error||b.error).message;st.admin=null;}else{st.admin={sum:a.data,rows:b.data};st.adminErr=null;}
   if(location.hash==='#admin')render();}
  const needConsent=()=>{const c=document.getElementById('consent');if(c&&!c.checked)throw Error('Please tick the box to agree to the Terms, Privacy Policy and data sharing.');};
- const run=async(f,ok)=>{if(st.busy)return;st.busy=true;try{await f();if(ok)toast(ok)}catch(e){toast(e.message||String(e))}finally{st.busy=false;}};
+ const run=async(f,ok)=>{if(st.busy)return;st.busy=true;try{await f();if(ok)toast(ok)}catch(e){const m=e.message||String(e);toast(/rate limit/i.test(m)?'Lots of sign-ups right now 😅 — please try again in about an hour.':/sending .*email/i.test(m)?'We couldn\'t send the email right now — please try again later.':m)}finally{st.busy=false;}};
  const chk=({error})=>{if(error)throw Error(error.message);};
  return{sb,st,refresh,wall,admin,run,
   init(){sb.auth.onAuthStateChange((ev,s)=>{const was=st.session&&st.session.user.id;st.session=s;if(!s){st.wall=null;st.admin=null;}
