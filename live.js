@@ -2,6 +2,13 @@
 // The anon key below is public by design; all money rules are enforced in Postgres (see supabase/migrations).
 const SB_URL='https://njuzlxafgpxzsdvvlsig.supabase.co',SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qdXpseGFmZ3B4enNkdnZsc2lnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIxMzcyMTksImV4cCI6MjEwNzcxMzIxOX0.okKFjkufnvDFYuic4NnCY2orqj-fk7BfjHJ7u6kTeGc';
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Anti-bot proof-of-work (ALTCHA-style, no third-party account): the server signs a challenge, the browser finds the
+// number whose SHA-256 matches, and the Supabase "before user created" hook verifies it (single use) before any account is made.
+async function solvePow(){const r=await fetch(SB_URL+'/functions/v1/pow-challenge',{headers:{apikey:SB_KEY}});if(!r.ok)throw Error('Security check unavailable — please try again.');
+ const c=await r.json(),enc=new TextEncoder(),hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+ for(let n=0;n<=c.maxnumber;n+=500){const batch=[];for(let i=n;i<Math.min(n+500,c.maxnumber+1);i++)batch.push(crypto.subtle.digest('SHA-256',enc.encode(c.salt+i)).then(h=>hex(h)===c.challenge?i:-1));
+  const hit=(await Promise.all(batch)).find(x=>x>=0);if(hit!==undefined)return{algorithm:c.algorithm,salt:c.salt,challenge:c.challenge,number:hit,signature:c.signature};}
+ throw Error('Security check failed — please try again.');}
 const LIVE=(()=>{
  const sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,flowType:'implicit'}});
  const st={ready:false,session:null,profile:null,bal:{available:0,pending:0},ledger:[],payouts:[],wall:null,wallErr:null,admin:null,adminErr:null,busy:false};
@@ -19,6 +26,7 @@ const LIVE=(()=>{
  async function admin(){const[a,b]=await Promise.all([sb.rpc('admin_summary'),sb.rpc('admin_payouts')]);
   if(a.error||b.error){st.adminErr=(a.error||b.error).message;st.admin=null;}else{st.admin={sum:a.data,rows:b.data};st.adminErr=null;}
   if(location.hash==='#admin')render();}
+ const needConsent=()=>{const c=document.getElementById('consent');if(c&&!c.checked)throw Error('Please tick the box to agree to the Terms, Privacy Policy and data sharing.');};
  const run=async(f,ok)=>{if(st.busy)return;st.busy=true;try{await f();if(ok)toast(ok)}catch(e){toast(e.message||String(e))}finally{st.busy=false;}};
  const chk=({error})=>{if(error)throw Error(error.message);};
  return{sb,st,refresh,wall,admin,run,
@@ -26,15 +34,19 @@ const LIVE=(()=>{
     if((s&&s.user.id)!==was||ev==='INITIAL_SESSION')setTimeout(refresh,0);if(location.hash.includes('access_token'))history.replaceState(null,'',redirect+'#home');});
    setInterval(()=>{if(st.session&&!['#offers','#admin'].includes(location.hash)&&!document.activeElement.matches('input,select'))refresh()},60000);},
   signIn:(email,pw)=>run(async()=>chk(await sb.auth.signInWithPassword({email,password:pw}))),
-  signUp:(email,pw)=>run(async()=>{const{data,error}=await sb.auth.signUp({email,password:pw,options:{emailRedirectTo:redirect}});if(error)throw error;
+  signUp:(email,pw)=>run(async()=>{needConsent();toast('🔒 Quick security check…');const pow=await solvePow();
+   const{data,error}=await sb.auth.signUp({email,password:pw,options:{emailRedirectTo:redirect,data:{consent_at:new Date().toISOString(),pow}}});if(error)throw error;
    if(!data.session)toast('Check your email to confirm your account 📩');}),
-  magic:(email)=>run(async()=>chk(await sb.auth.signInWithOtp({email,options:{emailRedirectTo:redirect,shouldCreateUser:true}})),'Magic link sent — check your email 📩'),
+  magic:(email)=>run(async()=>{needConsent();toast('🔒 Quick security check…');const pow=await solvePow();
+   chk(await sb.auth.signInWithOtp({email,options:{emailRedirectTo:redirect,shouldCreateUser:true,data:{consent_at:new Date().toISOString(),pow}}}));},'Magic link sent — check your email 📩'),
   reset:(email)=>run(async()=>chk(await sb.auth.resetPasswordForEmail(email,{redirectTo:redirect+'#account'})),'Password reset email sent 📩'),
   setPw:(pw)=>run(async()=>chk(await sb.auth.updateUser({password:pw})),'Password saved'),
   signOut:()=>run(async()=>{await sb.auth.signOut();location.hash='home';}),
   createProfile:(dob)=>run(async()=>{const d=new Date(dob),a=new Date();a.setFullYear(a.getFullYear()-18);
    if(!dob||isNaN(d))throw Error('Enter your date of birth');if(d>a)throw Error('Sorry — you must be 18 or older to join.');
-   chk(await sb.from('profiles').insert({id:st.session.user.id,date_of_birth:dob,age_confirmed_at:new Date().toISOString()}));await refresh();},'Welcome! 🎉'),
+   const um=st.session.user.user_metadata||{};
+   chk(await sb.from('profiles').insert({id:st.session.user.id,date_of_birth:dob,age_confirmed_at:new Date().toISOString(),consent_at:um.consent_at||new Date().toISOString()}));await refresh();},'Welcome! 🎉'),
+  consent:()=>run(async()=>{chk(await sb.rpc('give_consent'));st.wall=null;st.wallErr=null;await refresh();},'Thanks! Loading surveys…'),
   payout:(amt,method)=>run(async()=>{chk(await sb.rpc('request_payout',{p_amount_won:+amt,p_method:method}));await refresh();location.hash='redeem';},'Cash-out requested ✅'),
   setPayout:(id,status,ref)=>run(async()=>{chk(await sb.rpc('admin_set_payout',{p_id:id,p_status:status,p_ref:ref||null}));await admin();},'Updated'),
   addReceipt:(usd,note)=>run(async()=>{chk(await sb.rpc('admin_add_receipt',{p_partner:'cpx',p_usd:+usd,p_note:note||null}));await admin();},'Receipt recorded')};})();
@@ -50,12 +62,13 @@ const LV={
 <div class="card"><b>Sign in or create an account</b><input id="em" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com">
 <input id="pw" type="password" autocomplete="current-password" placeholder="Password (8+ characters)">
 <div class="row" style="gap:8px"><button class="btn" style="flex:1" onclick="LIVE.signIn($('#em').value.trim(),$('#pw').value)">Sign in</button><button class="btn ghost" style="flex:1" onclick="LIVE.signUp($('#em').value.trim(),$('#pw').value)">Create account</button></div>
+<label class="muted" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0"><input id="consent" type="checkbox" style="width:auto;margin-top:3px"> <span>I agree to the <a href="terms.html" target="_blank">Terms</a> and <a href="privacy.html" target="_blank">Privacy Policy</a> and consent to my data being shared with survey partners (CPX Research) to provide offers. <i>(Required to create an account.)</i></span></label>
 <p class="muted" style="margin:12px 0 6px">No password? Get a one-tap sign-in link by email:</p><button class="btn ghost" style="width:100%" onclick="LIVE.magic($('#em').value.trim())">📩 Email me a magic link</button>
 <p class="muted" style="margin-top:10px"><a href="#" onclick="event.preventDefault();LIVE.reset($('#em').value.trim())">Forgot password?</a></p></div>
-<p class="muted">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>.</p>${liveFunded}`},
+<p class="muted">🔒 New accounts pass a quick automatic security check (no puzzles). 18+ · US only.</p>${liveFunded}`},
  welcome(){const max=new Date();max.setFullYear(max.getFullYear()-18);return`<h1>One last step</h1><div class="card"><b>Confirm you're 18+</b><p class="muted">Joker's Abstract Wins is for adults 18+ in the US. Your date of birth is used only for eligibility.</p>
 <label class="muted">Date of birth</label><input id="dob" type="date" max="${max.toISOString().slice(0,10)}">
-<label class="muted" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0"><input id="ok18" type="checkbox" style="width:auto;margin-top:3px"> I confirm I am 18 or older, live in the US, and agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>. One account per person.</label>
+<label class="muted" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0"><input id="ok18" type="checkbox" style="width:auto;margin-top:3px"> I confirm I am 18 or older and live in the US (one account per person). I agree to the <a href="terms.html" target="_blank">Terms</a> and <a href="privacy.html" target="_blank">Privacy Policy</a> and consent to my data being shared with survey partners (CPX Research) to provide offers.</label>
 <button class="btn" style="width:100%" onclick="if(!$('#ok18').checked)toast('Please confirm you are 18+ and agree to the Terms');else LIVE.createProfile($('#dob').value)">Start earning</button></div>
 <div class="card"><span class="muted">Signed in as ${esc(me().email)}</span> · <a href="#" onclick="event.preventDefault();LIVE.signOut()">Sign out</a></div>`},
  home(){const g=gate();if(g)return g;const b=L.bal,p=Math.min(100,b.available/API.MIN*100),Lv=API.level();return`<div class="row"><h1>Hi ${avatar()}</h1><a href="#level" class="lvl">Lv ${Lv.level}</a></div>
@@ -63,7 +76,9 @@ const LV={
 <div class="bar"><i style="width:${p}%"></i></div><div class="row"><span class="muted">${b.available>=API.MIN?'You can cash out now!':n(API.MIN-b.available)+' Available to the 500 $WON ($5) minimum'}</span><a href="#redeem"><button class="btn">Cash out</button></a></div></div>
 <a href="#offers" style="text-decoration:none"><div class="card toppick row"><div><span class="tag top">⭐ Earn now</span><div style="margin-top:4px"><b>📝 Paid surveys by CPX Research</b></div><div class="muted">You get 30% of what the partner pays, shown on each survey</div></div><button class="btn">Open</button></div></a>
 <div class="row"><h2>Recent activity</h2><a href="#history" class="muted">See all</a></div>${ledgerList(L.ledger.slice(0,3))}${liveFunded}`},
- offers(){const g=gate();if(g)return g;if(!L.wall&&!L.wallErr)LIVE.wall();
+ offers(){const g=gate();if(g)return g;
+  if(!L.profile.consent_at)return`<h1>Surveys</h1><div class="card"><b>One quick consent</b><p class="muted">Surveys are provided by CPX Research, which receives your anonymous member ID to show and credit surveys.</p><label class="muted" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0"><input id="consent" type="checkbox" style="width:auto;margin-top:3px"> <span>I agree to the <a href="terms.html" target="_blank">Terms</a> and <a href="privacy.html" target="_blank">Privacy Policy</a> and consent to my data being shared with survey partners (CPX Research) to provide offers.</span></label><button class="btn" style="width:100%" onclick="if(!$('#consent').checked)toast('Please tick the box to continue');else LIVE.consent()">Continue to surveys</button></div>`;
+  if(!L.wall&&!L.wallErr)LIVE.wall();
   return`<h1>Surveys</h1><p class="muted" style="margin:-6px 0 10px">Each survey shows what you'll earn in $WON (100 $WON = $1). Credits arrive automatically and stay ⏳ Pending for 14 days while CPX Research confirms. Screen-outs and partial surveys may pay little or nothing.</p>
 ${L.wall?`<div class="card" style="padding:0;overflow:hidden"><iframe id="cpx" src="${esc(L.wall)}" title="CPX Research surveys" style="width:100%;height:1600px;border:0;display:block" allow="clipboard-write"></iframe></div><p class="muted">Surveys provided by CPX Research. Trouble loading? <a href="${esc(L.wall)}" target="_blank" rel="noopener">Open surveys in a new tab ↗</a></p>`
   :L.wallErr?`<div class="card note">${esc(L.wallErr)} <button class="btn sm" onclick="LIVE.st.wallErr=null;render()">Retry</button></div>`:'<div class="card"><p class="muted">Loading surveys…</p></div>'}`},
